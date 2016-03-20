@@ -1,0 +1,409 @@
+---
+title: "Becas Crema 2.0"
+author: "Karina De Sousa"
+date: "11 de marzo de 2016"
+output: pdf_document
+---
+
+#Objectivo:
+
+La Organizaci&oacute;n de Becas Crema ya ha obtenido una vista minable que permite su an&aacute;lisis para la detecci&oacute;n de patrones subyacentes, usando dicho dataset, se requiere que compare el rendimiento de algoritmos de clasificaci&oacute;n vistos en el curso que permitan etiquetar el modo de ingreso de la persona usando un subconjunto de las variables restantes seleccionado por usted.
+
+***
+
+#Soluci&oacute;n:
+
+1. Cargamos los paquetes necesarios,
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+install = function(pkg){
+  # Si ya est\'a instalado, no lo instala.
+  if (!require(pkg, character.only = TRUE)) {
+    install.packages(pkg, repos = "http:/cran.rstudio.com", dependencies = TRUE)
+    if (!require(pkg, character.only = TRUE)) stop(paste("load failure:", pkg))
+  }
+}
+
+packages <- c("class", "gmodels", "party", "rpart", "frbs");
+for (i in packages){
+  install(i)
+}
+
+(.packages())
+```
+
+2. Cargamos la vista minable. 
+
+```{r prompt=TRUE,tidy=TRUE}
+minable = read.csv(file = "./minable.csv", header = TRUE, sep = ",") #Vista Minable original
+```
+
+3. La columna a predecir es ``mIngreso'', que representa la modalidad de Ingreso a la universidad del estudiante, y puede tomar los valores, 
+
+  * 0 (Asignado OPSU),
+  * 1 (Convenios Interinstitucionales (nacionales e internacionales)),
+  * 2 (Convenios Internos (Deportistas, artistas, hijos empleados docente y obreros, Samuel Robinson)),
+  * 3 (Prueba Interna y/o propede&uacute;tico).
+  
+  Para esto tomaremos las primeras 20 columnas de la vista minable, exceptuando ``fNacimiento, aIngreso, sCurso, tGrado, jReprobadas, pRenovar, beca``. Porque el resto de las columnas dan informaci&oacute;n sobre el estatus econ&oacute;mico del becario y sus familiares o representantes. 
+  
+```{r prompt=TRUE,tidy=TRUE}
+rmColumns = c("fNacimiento", "aIngreso", "sCurso", "tGrado", "jReprobadas", "pRenovar", "beca", "mIngreso")
+columns = head(colnames(minable), n = 20)
+
+diff = columns[!(columns %in% rmColumns)]
+
+matrix = subset(x = minable, select = diff) #subset para clasificacion
+```
+
+  El dataframe ``matrix`` contiene las columnas que ser&aacute;n usadas en los distintos m&eacute;todos de clasificaci&oacute;n.
+
+* __k vecinos m&aacute;s cercanos__
+
+4. Para usar ``knn`` del paquete ``class``, los valores deben estar estandarizados,
+
+```{r prompt=TRUE,tidy=TRUE}
+matrixScale = subset(x = minable, select = diff) #subset para clasificacion
+for (i in 2:length(matrixScale)) {
+    matrixScale[i] = scale(matrixScale[i])
+}
+mIngresoScale = scale(minable$mIngreso)
+```
+
+5. Seleccionamos los valores de prueba y de entrenamiento,
+
+```{r prompt=TRUE,tidy=TRUE}
+train <- minable$cIdentidad < 95
+test <- !train
+
+train.X <- matrixScale[train,]
+test.X <- matrixScale[test,]
+train.mIngreso <- minable$mIngreso[train] #valor real de mIngreso en el set de 
+                                          #entrenamiento
+test.mIngreso <- minable$mIngreso[test]   #valor real de mIngreso en el set de pruebas 
+
+```
+
+6. Usamos la funci&oacute;n knn para predecir test.mIngreso, con k = 4 y vemos la calidad del modelo con una matriz de confusi&oacute;n. 
+
+```{r prompt=TRUE,tidy=TRUE}
+knn.pred <- knn(train=train.X, test = test.X, cl = train.mIngreso, k = 4)
+
+CrossTable(x=test.mIngreso, y=knn.pred, prop.chisq = FALSE)
+
+tableC = table(knn.pred, test.mIngreso)
+
+#u = union(knn.pred, test.mIngreso)
+#t = table(factor(knn.pred, u), factor(test.mIngreso, u))
+
+#confusionMatrix(t)
+```
+
+En el conjunto de prueba seleccionado solo existen filas de las clases 0, 2 y 3. Cuando ``k = 4``, todas son clasificadas como 0 &oacute; 3, por lo que existe un error en 5 filas de 96 (0.052).  
+
+7. Ahora, variamos el valor de k para verificar si el modelo mejora o empeora. 
+
+```{r prompt=TRUE,tidy=TRUE}
+knn.pred <- knn(train=train.X, test = test.X, cl = train.mIngreso, k = 20)
+
+CrossTable(x=test.mIngreso, y=knn.pred, prop.chisq = FALSE)
+```
+
+Con ``k = 20``, todas las filas son clasificadas como 3, por lo que existe un error en 49 filas de 96 (0.51). Por lo tanto, hay error en un poco m&aacute;s de la mitad del total de filas. 
+
+```{r prompt=TRUE,tidy=TRUE}
+knn.pred <- knn(train=train.X, test = test.X, cl = train.mIngreso, k = 2)
+
+CrossTable(x=test.mIngreso, y=knn.pred, prop.chisq = FALSE)
+```
+
+  Con ``k = 2``, todas las filas son clasificadas como 0, por lo que existe un error en 52 filas de 96 (0.54). Por lo tanto, hay error en m&aacute;s de la mitad del total de filas. 
+
+  Vemos que al aumentar o disminuir el valor de k, el modelo clasifica todas las filas en una sola clase. Por lo que el mejor modelo se obtiene con k=4, a pesar de que existen algunas instancias (5) que no son clasificadas de forma correcta, lo cual es entendible porque la cantidad de filas de la clase 2 en el conjunto de prueba es muy peque&ntilde;o con respecto a los 0s y 3s. 
+  
+* __&Aacute;rboles de decisi&oacute;n__
+
+8. Usamos el dataframe ``matrix``.
+
+```{r prompt=TRUE,tidy=TRUE,echo=FALSE}
+rmColumns = c("fNacimiento", "aIngreso", "sCurso", "tGrado", "jReprobadas", "pRenovar", "beca")
+columns = head(colnames(minable), n = 20)
+
+diff = columns[!(columns %in% rmColumns)]
+
+matrix = subset(x = minable, select = diff) #subset para clasificacion
+```
+
+9. Creamos un objecto de tipo formula que le indica a la funci&oacute;n que columnas debe usar para predecir ``mIngreso``,
+
+```{r prompt=TRUE,tidy=TRUE}
+formulaTree = diff[1]
+classColumn = "mIngreso"
+for (i in 2:length(diff)) {
+  if (diff[i] != classColumn){
+    formulaTree = paste(formulaTree, diff[i], sep = " + ")
+  }else {
+    formulaTree = paste(classColumn, formulaTree, sep = " ~ ")
+  }
+}
+```
+
+10. Creamos un &aacute;rbol usando ``rpart`` y el par&aacute;metro ``method = "class"``. 
+  El par&aacute;metro ``minsplit`` representa el n&uacute;mero m&iacute;nimo de observaciones que deben existir en un node antes de que se intente hacer una divisi&oacute;n, y ``cp`` es un par&aacute;metro de complejidad. Cualquier divisi&oacute;n que no disminuya la falta de presici&oacute;n en un factor de ``cp`` no ser&aacute; realizado.
+  
+  En la esta prueba usaremos ``minsplit = 5`` y ``cp = 0.001``.
+
+```{r prompt=TRUE,tidy=TRUE}
+#Arbol usando rpart
+becas_tree <- rpart(formula = as.formula(formulaTree), data = matrix, method = "class", control = rpart.control(minsplit=5, cp=0.001))
+
+#Graficamos el arbol
+plot(becas_tree)
+text(becas_tree)
+
+#Matriz de confusion
+predictionsProb = predict(becas_tree, type = "prob")
+predictionsClass = predict(becas_tree, type = "class")
+
+CrossTable(x=matrix$mIngreso, y=predictionsClass, prop.chisq = FALSE)
+
+#print(becas_tree)
+#summary(becas_tree)
+printcp(becas_tree)
+```
+
+11.  Viendo el resultado de ``summary(becas_tree)``, las variables por orden de importancia en el modelo fueron ``pAprobado, eficiencia, cIdentidad, lProcedencia, mAprobadas, lResidencia, mInscritas, mReprobadas, escuela`` y ``sexo``.
+
+  Mientras que las realmente usadas en la generaci&oacute;n del &aacute;rbol fueron, ``cIdentidad, eficiencia, lProcedencia, lResidencia, mAprobadas`` y ``pAprobado``.   
+
+  En este &aacuterbol vemos que 11 0s son clasificados como 3s, el &uacute;nico 1 es identificado de forma correcta, hay error en 4 2s y en 4 3s. En total, hubo errores en 19 filas de las 190 totales (0.1).
+
+  Vemos si el modelo mejora al eliminar las variables de menos importancia (``mReprobadas, escuela`` y ``sexo``),
+
+```{r prompt=TRUE,tidy=TRUE}
+headnames = c("pAprobado", "eficiencia", "cIdentidad", "lProcedencia", "mAprobadas", "lResidencia", "mInscritas", "mIngreso")
+
+#Nuevo dataframe
+matrixTree <- matrix[headnames]
+
+#Formula de clasificacion
+formulaTree = headnames[1]
+classColumn = "mIngreso"
+for (i in 2:length(headnames)) {
+  if (headnames[i] != classColumn){
+    formulaTree = paste(formulaTree, headnames[i], sep = " + ")
+  }else {
+    formulaTree = paste(classColumn, formulaTree, sep = " ~ ")
+  }
+}
+
+#Arbol usando rpart
+becas_tree <- rpart(formula = as.formula(formulaTree), data = matrixTree, method = "class", control = rpart.control(minsplit=5, cp=0.001))
+plot(becas_tree)
+text(becas_tree)
+
+#Matriz de confusion
+predictionsProb = predict(becas_tree, type = "prob")
+predictionsClass = predict(becas_tree, type = "class")
+CrossTable(x=matrixTree$mIngreso, y=predictionsClass, prop.chisq = FALSE)
+
+#print(becas_tree)
+#summary(becas_tree)
+printcp(becas_tree)
+```
+
+12. Viendo el resultado de ``summary(becas_tree)``, las variables por orden de importancia en el modelo fueron ``pAprobado, eficiencia, cIdentidad, lProcedencia, mAprobadas, lResidencia`` y ``mInscritas``.
+
+  Mientras que las realmente usadas en la generaci&oacute;n del &aacute;rbol fueron, ``cIdentidad, eficiencia, lProcedencia, lResidencia, mAprobadas`` y ``pAprobado``.   
+
+  Con este modelo vemos que la clasificaci&oacute;n de 1s y 2s se mantuvo igual, hubo error en 9 0s y en 5 3s. En total, hubo errores en 18 filas de las 190 totales (0.094), lo cual representa una mejora insignificante con respecto al modelo anterior.
+
+  Todas las variables son usadas. Ahora vemos si el modelo empeora al eliminar las variables de menos importancia (``lResidencia`` y ``mInscritas``),
+
+```{r prompt=TRUE,tidy=TRUE}
+headnames = c("pAprobado", "eficiencia", "cIdentidad", "lProcedencia", "mAprobadas", "mIngreso")
+
+matrixTree <- matrix[headnames]
+
+formulaTree = headnames[1]
+classColumn = "mIngreso"
+for (i in 2:length(headnames)) {
+  if (headnames[i] != classColumn){
+    formulaTree = paste(formulaTree, headnames[i], sep = " + ")
+  }else {
+    formulaTree = paste(classColumn, formulaTree, sep = " ~ ")
+  }
+}
+
+#Arbol usando rpart
+becas_tree <- rpart(formula = as.formula(formulaTree), data = matrixTree, method = "class", control = rpart.control(minsplit=5, cp=0.001))
+becas_tree
+plot(becas_tree)
+text(becas_tree)
+
+predictionsProb = predict(becas_tree, type = "prob")
+predictionsClass = predict(becas_tree, type = "class")
+
+CrossTable(x=matrix$mIngreso, y=predictionsClass, prop.chisq = FALSE)
+
+#print(becas_tree)
+#summary(becas_tree)
+printcp(becas_tree)
+```
+
+13. Viendo el resultado de ``summary(becas_tree)``, las variables por orden de importancia en el modelo fueron ``eficiencia, pAprobado, cIdentidad, lProcedencia`` y ``mAprobadas``.
+
+  Mientras que las realmente usadas en la generaci&oacute;n del &aacute;rbol fueron, ``cIdentidad, eficiencia, lProcedencia, mAprobadas`` y ``pAprobado``.   
+
+  La calidad del modelo es la misma que la del anterior. Veamos que pasa al usar las 3 variables m&aacute; importantes del modelo (``eficiencia, pAprobado`` y ``cIdentidad``),
+  
+```{r prompt=TRUE,tidy=TRUE}
+headnames = c("pAprobado", "eficiencia", "cIdentidad", "mIngreso")
+
+matrixTree <- matrix[headnames]
+
+formulaTree = headnames[1]
+classColumn = "mIngreso"
+for (i in 2:length(headnames)) {
+  if (headnames[i] != classColumn){
+    formulaTree = paste(formulaTree, headnames[i], sep = " + ")
+  }else {
+    formulaTree = paste(classColumn, formulaTree, sep = " ~ ")
+  }
+}
+
+#Arbol usando rpart
+becas_tree <- rpart(formula = as.formula(formulaTree), data = matrixTree, method = "class", control = rpart.control(minsplit=5, cp=0.001))
+becas_tree
+plot(becas_tree)
+text(becas_tree)
+
+predictionsProb = predict(becas_tree, type = "prob")
+predictionsClass = predict(becas_tree, type = "class")
+
+CrossTable(x=matrix$mIngreso, y=predictionsClass, prop.chisq = FALSE)
+
+#print(becas_tree)
+#summary(becas_tree)
+printcp(becas_tree)
+```
+
+14. Vemos como el modelo empeora considerablemente con respecto a los anteriores, teniendo error en 23 filas (0.12). Por lo tanto, el mejor es el segundo, donde solo usamos las variables necesarias y eliminamos las que no eran usadas.
+
+* __Reglas de clasificaci&oacute;n__
+
+15. Usamos ``frbs``, para lo cual seleccionamos la data de entrenamiento y de prueba, donde la &uacute:ltima columna debe ser la que vamos a clasificar y la misma no puede contener ceros. 
+
+  En esta primera prueba usamos ``method.type <- "FRBCS.CHI"``, un sistema de clasificaci&oacute;n basado en el m&eacute;todo de Ishibuchi.
+
+```{r prompt=TRUE,tidy=TRUE,warning=FALSE}
+#training with mIngresos
+#test without mIngresos
+#test real mIngresos
+train <- minable$cIdentidad < 95
+test <- !train
+
+train.X <- matrix[train, c(1:4, 6:13, 5)]
+test.X <- matrix[test, c(1:4,6:13)]
+
+train.X[13] = train.X[13] + 1 #sumamos uno para eliminar los ceros
+
+test.mIngreso <- minable$mIngreso[test] #valor real de mIngreso en el set de pruebas 
+
+#define data range without mIngresos
+#define method and control parameter
+range.data.input <- apply(matrix[, -ncol(matrix)], 2, range)
+method.type <- "FRBCS.W"
+control <- list(num.labels = 4, type.mf = "GAUSSIAN", type.tnorm = "MIN",
+                type.snorm = "MAX", type.implication.func = "ZADEH")
+
+# Learning step: Generate fuzzy model
+object.cls <- frbs.learn(train.X, range.data.input, method.type, control)
+
+# Predicting step: Predict newdata
+res.test <- predict(object.cls, test.X) 
+
+res.test <- res.test - 1 #restamos el 1 que sumamos anteriormente
+CrossTable(x=test.mIngreso, y=res.test, prop.chisq = FALSE)
+
+```
+
+16. En la matriz de confusi&oacute;n vemos que solo se clasifican de forma correcta 23 instancias del conjunto de prueba.
+
+  Ahora, usamos ``method.type <- "FRBCS.CHI"``, un sistema de clasificaci&oacute;n basado en el m&eacute;todo de Chi.
+
+```{r prompt=TRUE,tidy=TRUE,warning=FALSE}
+#training with mIngresos
+#test without mIngresos
+#test real mIngresos
+train <- minable$cIdentidad < 95
+test <- !train
+
+train.X <- matrix[train, c(1:4, 6:13, 5)]
+test.X <- matrix[test, c(1:4,6:13)]
+
+train.X[13] = train.X[13] + 1 
+
+test.mIngreso <- minable$mIngreso[test] #valor real de mIngreso en el set de pruebas 
+
+#define data range without mIngresos
+#define method and control parameter
+range.data.input <- apply(matrix[, -ncol(matrix)], 2, range)
+method.type <- "FRBCS.CHI"
+control <- list(num.labels = 4, type.mf = "GAUSSIAN", type.tnorm = "MIN",
+                type.snorm = "MAX", type.implication.func = "ZADEH")
+
+# Learning step: Generate fuzzy model
+object.cls <- frbs.learn(train.X, range.data.input, method.type, control)
+
+# Predicting step: Predict newdata
+res.test <- predict(object.cls, test.X)
+
+res.test <- res.test - 1
+CrossTable(x=test.mIngreso, y=res.test, prop.chisq = FALSE)
+
+```
+
+17. En la matriz de confusi&oacute;n vemos que solo se clasifican de forma correcta 23 instancias del conjunto de prueba, al igual que en el punto 16.
+
+  Ahora, usamos ``method.type <- "FRBCS.W"`` Y ``type.mf <- BELL``,
+
+```{r prompt=TRUE,tidy=TRUE,warning=FALSE}
+#training with mIngresos
+#test without mIngresos
+#test real mIngresos
+train <- minable$cIdentidad < 95
+test <- !train
+
+train.X <- matrix[train, c(1:4, 6:13, 5)]
+test.X <- matrix[test, c(1:4,6:13)]
+
+train.X[13] = train.X[13] + 1 
+
+test.mIngreso <- minable$mIngreso[test] #valor real de mIngreso en el set de pruebas 
+
+#define data range without mIngresos
+#define method and control parameter
+range.data.input <- apply(matrix[, -ncol(matrix)], 2, range)
+method.type <- "FRBCS.W"
+control <- list(num.labels = 4, type.mf = "BELL", type.tnorm = "MIN",
+                type.snorm = "MAX", type.implication.func = "ZADEH")
+
+# Learning step: Generate fuzzy model
+object.cls <- frbs.learn(train.X, range.data.input, method.type, control)
+
+# Predicting step: Predict newdata
+res.test <- predict(object.cls, test.X)
+
+res.test <- res.test - 1
+CrossTable(x=test.mIngreso, y=res.test, prop.chisq = FALSE)
+
+```
+
+18. En la matriz de confusi&oacute;n vemos que todas las instancias se asignan a la clase 3. Con lo cual tenemos 47 filas clasificadas de forma correcta.
+
+***
+
+#Conclusi&oacute;n:
+
+  Basandonos en los resultados obtenidos, podemos concluir que la mejor clasificaci&oacute;n se obtiene usando &aacute;rboles de clasificaci&oacute;n. Adem&aacute;s este m&eacute;todo permite visualizar de forma grafica los resultados y el proceso usado para clasificar cada instancia, lo cual lo hace m&aacute;s intuitivo y f&aacute;cil de entender. 

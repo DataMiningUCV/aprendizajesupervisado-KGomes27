@@ -1,2 +1,14 @@
-# AprendizajeSupervisado
-Código base para tarea de Aprendizaje Supervisado. Minería de Datos II-2015.
+# Aprendizaje Supervisado
+
+Asignación#2 - Minería de Datos II-2015.
+
+Desarrollada en el lenguaje de programación y el IDE RStudio, en Windows 10.
+
+##Paquetes usados
+	- class,
+	- gmodels,
+	- party,
+	- rpart y 
+	- frbs.
+
+	
