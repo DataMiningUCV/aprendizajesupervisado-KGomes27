@@ -1,4 +1,24 @@
-####################################################################################
+---
+title: "hogar"
+author: "Karina De Sousa"
+date: "13 de marzo de 2016"
+output: pdf_document
+---
+
+#Objectivo:
+
+El amigo de un amigo tiene pensado estudiar en Roma durante 2 años a partir de algún momento. En vista
+de esto, ha decidido usar la plataforma sturent para encontrar un hogar durante sus estudios al ser la única
+compañía certificada para estudiantes en Roma. Nuestro amigo, al tener poco capital disponible, necesita
+escoger inteligentemente el hogar en base a una lista de disponibles provista por sturent. Para ello, necesita de su ayuda tratando de predecir el precio de los apartamentos en base a los apartamentos disponibles y escoger, de esta manera, el mejor entre ellos.
+
+***
+
+#Soluci&oacute;n:
+
+1. Cargamos los paquetes necesarios,
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Install packages
 install = function(pkg){
   # Si ya est\'a instalado, no lo instala.
@@ -14,8 +34,11 @@ for (i in packages){
 }
 
 (.packages())
+```
 
-######################################################################################
+2. Cargamos los datos de los hogares disponibles
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Load data
 hogares = read.xlsx(file = "./hogares.xlsx", sheetIndex = 1,
                     as.data.frame=TRUE, header=TRUE, rowIndex = NULL,
@@ -25,13 +48,32 @@ hogares = read.xlsx(file = "./hogares.xlsx", sheetIndex = 1,
 
 names(hogares) <- c("distrito", "direccion", "tipo", "piso",
                     "descripcion", "habitaciones", "precio", "foto", "notas")
+```
 
-####################################################################################
-#####################PREPROCESSING DATA#############################################
+##PreProcesamiento de los datos
+
+3. Eliminamos las columnas ``foto`` y ``piso``, porque no ser&aacute;n usadas.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Delete column foto y piso
 hogares = subset(x = hogares, select = c("distrito", "direccion", "tipo", "descripcion",
                                          "habitaciones", "precio", "notas"))
+```
 
+4. La columna ``direccion`` se transformara en una nueva llamada tiempo, la cual representa el tiempo en segundo que tarda la persona en ir de la universidad a los distintos apartamentos. 
+
+  Para esto, se completo la funci&oacute;n ``parse_data()`` de la siguiente forma,
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+parse_data = function(json){
+  return (as.data.frame(json$rows$elements[[1]]))
+}
+```
+
+  ``parse_data()`` recibe un ``json`` y retorna el mismo transformado a un ``data.frame``
+
+  Luego, se eliminan los saltos de l&iacute;nea y posibles errores que tengan los datos de la columna ``direccion`` y se usa el ``API de Google`` para calcular la columna ``tiempo``,
+  
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Eliminar \n de columna direccion y distrito
 hogares$direccion = gsub("\n", " ", hogares$direccion)
 hogares$distrito = gsub("\n", " ", hogares$distrito)
@@ -81,7 +123,11 @@ for(i in 1:nrow(hogares)){
     hogares$tiempo[i] = time
   }
 }
+```
 
+5. Ahora, convertimos la columna ``tipo``, asignando 1 a los apartamentos, 2 a los mini apartamentos y 3 a los estudios.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Convertir columna 'tipo' a numerico
 #1 - Appartamento, 2 - Mini Appartamento, 3 - Monolocale
 hogares$tipo[61] = hogares$tipo[85] = hogares$tipo[7] = hogares$tipo[27] = "Appartamento"
@@ -90,7 +136,11 @@ hogares$tipo[hogares$tipo == "Appartamento"] =1
 hogares$tipo[hogares$tipo == "Mini appartamento"] = 2
 hogares$tipo[hogares$tipo == "Monolocale"] = 3
 hogares$tipo = as.numeric(hogares$tipo)
+```
 
+6. Con la columna ``notas`` determinamos si el hogar est&aacute; disponibles para hombres (1), mujeres (2) o ambos (3).
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Convertir columna notas a numerico
 #1 - ragazzi (hombres), 2 - ragazze (mujeres), 3 - Both
 for(i in 1:nrow(hogares)){
@@ -107,10 +157,20 @@ for(i in 1:nrow(hogares)){
 ##"APT da condividere con i proprietari Metro B San Paolo Autobus 716, 769, 792"
 hogares$notas[39] = 3
 hogares$notas = as.numeric(hogares$notas)
+```
 
+6. Creamos una nueva columna llamada ``servicios`` con los siguientes valores, 
+  * 1 - Spese Escluse (No incluye cargos por servicios)
+  * 2 - Tutto Incluso (Todo inclu&iacute;do)
+  * 3 - Cualquier otro servicio
+
+Creamos las columnas ``calefaccion`` y ``condominio`` y ``cocina``, las cuales nos dan m&aacute;s informaci&oacute;n sobre el hogar y obtenemos estos datos de la columna ``precio``.
+
+En la columna ``precio`` dejamos &uacute;nicamente el valor del hogar.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Convertir precio a numerico
 hogares$servicios = 0
-hogares[nrow(hogares) + 1,]
 hogares$precio = gsub("â,¬", "$", hogares$precio)
 hogares$precio = gsub("\n", " ", hogares$precio)
 hogares$calefaccion = 0
@@ -153,7 +213,21 @@ hogares$precio[24] = 380
 hogares$precio[61] = 425
 hogares$precio[53] = 425
 hogares$precio = as.numeric(hogares$precio)
+```
 
+7. Convertimos la columna habitaciones a datos n&acute;mericos,
+  * 1 - Una sola habitaci&oacute;n.
+  * 2 - Dos habitaciones.
+  * 3 - Tres habitaciones.
+  * 4 - Cuatro habitaciones.
+  * 5 - Apartamento completo.
+  * 6 - Miniapartamento.
+  * 7 - Estudio.
+  * 8 - Una cama.
+  * 9 - Una habitaci&oacute;n doble.
+  * 10 - Dos habitaciones dobles.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Convertir habitaciones a numerico
 hogares$habitaciones = gsub("\n", " ", hogares$habitaciones)
 
@@ -194,7 +268,11 @@ hogares$habitaciones[hogares$habitaciones == "1 doppia"] = 9
 hogares$habitaciones[hogares$habitaciones == "2 doppie"] = 10
 
 hogares$habitaciones = as.numeric(hogares$habitaciones)
+```
 
+8. Creamos las columnas ``entrada``, ``habitacion`` y ``cocina``, las cuales nos dan m&aacute;s informaci&oacute;n sobre el hogar y obtenemos estos datos de la columna ``descripcion``.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Convertir descripcion a numerico
 hogares$entrada = 0
 hogares$habitacion = 0
@@ -221,6 +299,11 @@ hogares$cocina = as.numeric(hogares$cocina)
 hogares$condominio = as.numeric(hogares$condominio)
 hogares$calefaccion = as.numeric(hogares$calefaccion)
 
+```
+
+9. Eliminamos las columnas que no son necesarias y as&iacute; obtenemos una vista minable de los hogares,
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Eliminar columnas que no seran usadas
 hogares = subset(x = hogares, select = c("tipo", "habitaciones", "precio", "notas",
                                          "tiempo", "servicios", "calefaccion", "condominio",
@@ -228,22 +311,41 @@ hogares = subset(x = hogares, select = c("tipo", "habitaciones", "precio", "nota
 names(hogares) = c("tipo", "habitaciones", "precio", "sexo",
                    "tiempo", "servicios", "calefaccion", "condominio",
                    "entrada", "habitacion", "cocina")
+head(hogares)
+```
 
+10. Usamos la funci&oacute;n ``lm`` de ``stats`` para hallar el modelo de regresi&oacute;n lineal que mejor se ajuste a nuestros datos. Separandolos en hogares para mujeres y hogares para hombres.  
+
+##Modelo para mujeres
+
+11. Seleccionamos los hogares para mujeres y vemos como queda la predicci&oacute;n usando ``lm``, donde los puntos azules son los aproximados y los rojos los reales. 
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Seleccionar mujeres
 hogaresMujeres = subset(x = hogares, subset = sexo!=1)
+
 regression = lm(formula = hogaresMujeres$precio ~ ., data = hogaresMujeres)
 
-plot(regression)
+#plot(regression)
 
 predictions = predict(regression)
 
 plot(hogaresMujeres$precio, col="red")
 par(new=TRUE) 
-
-plot(predictions)
+plot(predictions, col="blue")
 
 mean(abs(predictions - hogaresMujeres$precio))
+```
 
+  Existe una diferencia promedio de ``125.16`` entre el precio real y el aproximado. 
+  
+  Ahora, veamos que tan buena es la aproximaci&oacute;n para los hombres.
+
+##Modelo para hombres
+
+12. Seleccionamos los hogares para hombres y vemos como queda la predicci&oacute;n usando ``lm``, donde los puntos azules son los aproximados y los rojos los reales. 
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 #Seleccionar hombres
 hogaresHombres = subset(x = hogares, subset = sexo!=2)
 
@@ -258,8 +360,19 @@ par(new=TRUE)
 plot(predictions, col="blue")
 
 mean(abs(predictions - hogaresHombres$precio))
+```
 
-#Seleccionando el mejor hogar
+  Existe una diferencia promedio de ``143.703`` entre el precio real y el aproximado.
+  
+13. En general, el modelo nos ayuda a predecir, tanto para hombres como para mujeres, el precio de un hogar deacuerdo a varias caracter&iacute;sticas que pueden aumentar o disminuir su valor. Por lo que, si la aproximaci&oacute;n est&aacute; por encima del valor real o es igual al mismo, sabremos que dicho precio es correcto y es una buena opci&oacuten; que la persona puede considerar al momento de hallar un hogar. 
+
+  De igual forma podemos ver que si el precio real del hogar se encuentra por encima del aproximado, entonces el mismo est&aacute; sobrevalorado y no es una buena opci&oacute;n a la hora de buscar un hogar.
+  
+##Seleccionando el mejor hogar  
+
+14. Creamos una nueva columna llamada ``ranking``, donde asignaremos un puntaje a cada hogar para determinar cual es el mejor, tanto para hombres, como para mujeres. 
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
 hogares$ranking = 0
 promPrecio = mean(hogares$precio)
 promTiempo = mean(hogares$tiempo)
@@ -307,3 +420,26 @@ for (i in 1:nrow(hogares)) {
     hogares$ranking[i] = hogares$ranking[i] + 10
   }
 }
+
+#recomendation = subset(x = hogares, subset = hogares$ranking == max(hogares$ranking))
+```
+  
+15. Seleccionamos los hogares de mayor puntaje para mujeres,
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+#Seleccionar mujeres
+hogaresMujeres = subset(x = hogares, subset = sexo!=1)
+
+recomendation = subset(x = hogares, subset = hogaresMujeres$ranking == max(hogares$ranking))
+recomendation
+```
+
+16. Seleccionamos los hogares de mayor puntaje para hombres,
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+#Seleccionar hombres
+hogaresHombres = subset(x = hogares, subset = sexo!=2)
+
+recomendation = subset(x = hogares, subset = hogaresHombres$ranking == max(hogares$ranking))
+recomendation
+```

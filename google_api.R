@@ -43,5 +43,5 @@ get_data = function(api_url){
 
 # To Complete
 parse_data = function(json){
-  
+  return (as.data.frame(json$rows$elements[[1]]))
 }
